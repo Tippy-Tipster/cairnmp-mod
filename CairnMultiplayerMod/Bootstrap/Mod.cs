@@ -184,6 +184,7 @@ public partial class Mod : MelonMod
             _runtimeState.ModeRules = Lobby.CurrentModeRules;
             // Lets the host see, before starting, who could not follow to a DLC destination.
             Lobby.PublishWorldAvailability(SummitWorldInterop.WhyUnavailable(Lobby.CurrentWorld) == null);
+            Lobby.PublishColor(ModConfig.PlayerColor?.Value ?? 0);
             var code = Lobby.CurrentRoomCode;
             _panel.SetCurrentLobbyName(Lobby.CurrentLobbyName);
             _panel.SetStatus(string.IsNullOrEmpty(code) ? "Connected" : $"Connected — code {code}", true);

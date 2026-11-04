@@ -51,6 +51,8 @@ internal static class RemotePlayerManager
         public bool LastAppliedGloves;
         public bool HasAppliedCosmeticState;
 
+        public int LastAppliedColorChoice = -1;
+
 
         public byte[] LastAppliedHandPosePacked;
 
@@ -496,6 +498,141 @@ internal static class RemotePlayerManager
         entry.HasAppliedOutfit = true;
     }
 
+    /// <summary>Cairn's own skin palette index for a ghost: the player's pick, or one spread by id.</summary>
+    internal static byte SkinColorIndex(int playerId, int colorChoice)
+        => colorChoice is >= 1 and <= Protocol.CosmeticColorCount
+            ? (byte)(colorChoice - 1)
+            : (byte)(((playerId % Protocol.CosmeticColorCount) + Protocol.CosmeticColorCount) % Protocol.CosmeticColorCount);
+
+    private static bool TryApplySkinColor(NetplayRemotePlayer ghost, int playerId, int colorChoice)
+    {
+        try
+        {
+            var skin = ghost.skin != null ? ghost.skin : ghost.transform.root.GetComponentInChildren<NetplayPlayerSkin>(true);
+            if (skin == null) return false;
+
+            var colorIndex = SkinColorIndex(playerId, colorChoice);
+            skin.SetColorIndex(colorIndex);
+            ModLog.Debug($"[Ghost] native skin color index {colorIndex} applied to {playerId}");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ModLog.SuppressedException("remote-player.apply-native-skin", exception);
+            return false;
+        }
+    }
+
+    private static GameObject _previewGhost;
+    private static NetplayRemotePlayer _previewNrp;
+    private static int _previewColorChoice;
+
+    /// <summary>
+    /// Debug aid: stands a copy of the climber in front of the local player, built the way a
+    /// remote player's is, so a colour pick can be seen without a second player. It has no
+    /// network feed, so it stays in the prefab's rest pose. With no argument it appears in
+    /// the saved colour and each further call moves on to the next one.
+    /// </summary>
+    internal static string PreviewGhost(string argument, int savedChoice)
+    {
+        argument = (argument ?? "").Trim().ToLowerInvariant();
+        if (argument == "off")
+        {
+            ClearPreviewGhost();
+            return "Colour preview removed.";
+        }
+
+        var count = Protocol.CosmeticColorCount + 1;
+        int choice;
+        if (argument.Length == 0)
+            choice = _previewGhost != null ? (_previewColorChoice + 1) % count : savedChoice;
+        else if (argument == "auto")
+            choice = 0;
+        else if (!int.TryParse(argument, out choice) || choice < 0 || choice > Protocol.CosmeticColorCount)
+            return $"Use /ghost, /ghost 1-{Protocol.CosmeticColorCount}, /ghost auto or /ghost off.";
+
+        if (_previewGhost == null && !TrySpawnPreviewGhost(out var failure)) return failure;
+
+        if (!TryApplySkinColor(_previewNrp, PreviewPlayerId, choice))
+            return "Could not change the preview's colour.";
+
+        _previewColorChoice = choice;
+        return choice == 0
+            ? "Preview colour: Auto (the game's own pick for this player)."
+            : $"Preview colour: Colour {choice}.";
+    }
+
+    private const int PreviewPlayerId = 1;
+
+    private static bool TrySpawnPreviewGhost(out string failure)
+    {
+        failure = null;
+        var me = LocalPlayerInterop.TryGetMCGameObject();
+        if (me == null)
+        {
+            failure = "Start the climb first - there is no climber to stand next to.";
+            return false;
+        }
+
+        var prefab = NetplayAnimationInterop.TryGetNetplayClimberPrefab();
+        if (prefab == null)
+        {
+            failure = "The game's climber model is not available right now.";
+            return false;
+        }
+
+        GameObject go = null;
+        try
+        {
+            go = Object.Instantiate(prefab);
+            go.name = "MP_ColorPreview";
+            var nrp = go.GetComponent<NetplayRemotePlayer>() ?? go.GetComponentInChildren<NetplayRemotePlayer>(true);
+            if (nrp == null)
+            {
+                Object.Destroy(go);
+                failure = "The climber model has no player component to colour.";
+                return false;
+            }
+
+            go.SetActive(true);
+            ActivateNativeRemoteVisuals(go);
+
+            var skinned = go.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            for (int i = 0; i < skinned.Count; i++)
+                if (skinned[i] != null) skinned[i].enabled = true;
+
+            var cameras = go.GetComponentsInChildren<Camera>(true);
+            for (int i = 0; i < cameras.Count; i++) Object.Destroy(cameras[i]);
+
+            var colliders = go.GetComponentsInChildren<Collider>(true);
+            for (int i = 0; i < colliders.Count; i++) colliders[i].enabled = false;
+
+            var origin = me.transform;
+            go.transform.SetPositionAndRotation(
+                origin.position + origin.forward * 2f,
+                Quaternion.LookRotation(-origin.forward, Vector3.up));
+
+            _previewGhost = go;
+            _previewNrp = nrp;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ModLog.SuppressedException("remote-player.spawn-color-preview", exception);
+            if (go != null) Object.Destroy(go);
+            failure = "Could not create the colour preview.";
+            return false;
+        }
+    }
+
+    internal static void ClearPreviewGhost()
+    {
+        try { if (_previewGhost != null) Object.Destroy(_previewGhost); }
+        catch (Exception exception) { ModLog.SuppressedException("remote-player.clear-color-preview", exception); }
+        _previewGhost = null;
+        _previewNrp = null;
+    }
+
     private static void ApplyPendingCosmetics(NetworkManager net)
     {
         foreach (var kv in net.RemotePlayers)
@@ -504,6 +641,11 @@ internal static class RemotePlayerManager
             if (rp == null || !rp.HasCosmeticState) continue;
             if (!_ghosts.TryGetValue(kv.Key, out var entry)) continue;
             if (!entry.IsRealModel || entry.NrpComponent == null) continue;
+
+            var colorChoice = Protocol.ColorChoiceOf(rp.CosmeticFlags);
+            if (entry.LastAppliedColorChoice != colorChoice
+                && TryApplySkinColor(entry.NrpComponent, kv.Key, colorChoice))
+                entry.LastAppliedColorChoice = colorChoice;
 
             bool glovesOn = (rp.CosmeticFlags & Protocol.CosmeticFlagGlowingGloves) != 0;
             if (!entry.HasAppliedCosmeticState || entry.LastAppliedGloves != glovesOn)
@@ -645,6 +787,8 @@ internal static class RemotePlayerManager
             var prefab = NetplayAnimationInterop.TryGetNetplayClimberPrefab();
 
             bool isRealModel = false;
+            int initialColorChoice = rp != null && rp.HasCosmeticState ? Protocol.ColorChoiceOf(rp.CosmeticFlags) : 0;
+            bool initialColorApplied = false;
 
             if (prefab != null)
             {
@@ -680,19 +824,8 @@ internal static class RemotePlayerManager
                         catch (Exception exception) { ModLog.SuppressedException("remote-player.apply-spawn-lerp", exception); }
 
                         // Use Cairn's palette so custom shaders receive the expected material setup.
-                        try
-                        {
-                            var skin = nrpComp.skin != null
-                                ? nrpComp.skin
-                                : go.GetComponentInChildren<NetplayPlayerSkin>(true);
-                            if (skin != null)
-                            {
-                                byte colorIndex = (byte)(((id % 6) + 6) % 6);
-                                skin.SetColorIndex(colorIndex);
-                                ModLog.Debug($"[Ghost] native skin color index {colorIndex} applied to {id}");
-                            }
-                        }
-                        catch (Exception exception) { ModLog.SuppressedException("remote-player.apply-native-skin", exception); }
+                        if (TryApplySkinColor(nrpComp, id, initialColorChoice))
+                            initialColorApplied = true;
                     }
 
                     var skinned = go.GetComponentsInChildren<SkinnedMeshRenderer>(true);
@@ -729,6 +862,7 @@ internal static class RemotePlayerManager
                         IsRealModel = true,
                         Collider = capsule,
                         InteractionColliders = interactionColliders,
+                        LastAppliedColorChoice = initialColorApplied ? initialColorChoice : -1,
                     };
                 }
             }

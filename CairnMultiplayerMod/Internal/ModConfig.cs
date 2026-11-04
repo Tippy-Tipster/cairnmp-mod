@@ -10,6 +10,8 @@ internal static class ModConfig
     private static readonly string CategoryDebug = "Debug";
 
     public static MelonPreferences_Entry<string> PlayerName;
+    /// <summary>0 = automatic, otherwise 1..CairnMultiplayer.Shared.Protocol.CosmeticColorCount.</summary>
+    public static MelonPreferences_Entry<int> PlayerColor;
 
     public static MelonPreferences_Entry<string> RoomCode;
     public static MelonPreferences_Entry<int> MaxPlayers;
@@ -27,6 +29,7 @@ internal static class ModConfig
     {
         var player = MelonPreferences.CreateCategory(CategoryPlayer);
         PlayerName = player.CreateEntry("Name", "Player");
+        PlayerColor = player.CreateEntry("Color", 0);
 
         var room = MelonPreferences.CreateCategory(CategoryRoom);
         RoomCode = room.CreateEntry("Code", "");

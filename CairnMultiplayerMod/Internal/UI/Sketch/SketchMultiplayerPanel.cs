@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using CairnMultiplayer.Shared;
+using CairnMultiplayerMod.Internal;
 using CairnMultiplayerMod.Internal.Diagnostics;
+using CairnMultiplayerMod.Internal.Game.Players;
 using CairnMultiplayerMod.Internal.Networking;
 using Il2CppTMPro;
 using UnityEngine;
@@ -65,7 +67,9 @@ internal sealed class SketchMultiplayerPanel : IMultiplayerPanel
     private string _autoLobbyName = "";
     private int _slots = MaxSlots, _visIndex;
     private TextMeshProUGUI _slotsLabel, _visLabel, _worldLabel, _worldNote, _createLabel, _joinLabel, _refreshLabel;
-    private TextMeshProUGUI _subtitleLabel, _bannerBadge;
+    private TextMeshProUGUI _subtitleLabel, _bannerBadge, _colorLabel;
+    private Image _colorSwatch;
+    private readonly List<Image> _memberSwatches = new();
     private Button _createBtn, _joinBtn, _refreshBtn, _previousPage, _nextPage, _copyBtn;
     private Transform _browseList;
     private GameObject _browseEmpty;
@@ -288,7 +292,60 @@ internal sealed class SketchMultiplayerPanel : IMultiplayerPanel
         BuildHomeCard(body, -98f, GameUiAssetLibrary.IconPlayer, "BROWSE CLIMBS",
             "Find a public lobby to join", () => SwitchTo(Screen.Browse));
 
+        var colorCell = SketchUiKit.RowStrip(body.transform, "Climber colour", -190f);
+        _colorLabel = SketchUiKit.Stepper(colorCell, ColorName(ChosenColor),
+            (UnityAction)(() => CycleColor(-1)), (UnityAction)(() => CycleColor(+1)));
+        _colorSwatch = BuildSwatch(colorCell, new Vector2(-62f, 0f), 22f);
+        _colorSwatch.color = SwatchColor(ChosenColor);
+        foreach (var button in colorCell.GetComponentsInChildren<Button>()) _settingButtons.Add(button);
+
         BuildStatus(body.transform);
+    }
+
+    private static int ChosenColor
+        => Math.Clamp(ModConfig.PlayerColor?.Value ?? 0, 0, Protocol.CosmeticColorCount);
+
+    private static string ColorName(int choice) => choice == 0 ? "Auto" : $"Colour {choice}";
+
+    /// <summary>
+    /// The swatches show the jacket colour each pick gives, the one thing the game's skin
+    /// palette changes. Auto is grey: the game picks per player.
+    /// </summary>
+    private static Color SwatchColor(int choice)
+        => choice is >= 1 and <= Protocol.CosmeticColorCount ? JacketColors[choice - 1] : new Color(0.45f, 0.45f, 0.47f, 1f);
+
+    // The jacket body of each game skin colour, eyeballed from screenshots of the previews.
+    private static readonly Color[] JacketColors =
+    {
+        new(0.20f, 0.34f, 0.76f, 1f), // 1 blue
+        new(0.22f, 0.22f, 0.25f, 1f), // 2 charcoal
+        new(0.16f, 0.20f, 0.36f, 1f), // 3 dark navy
+        new(0.52f, 0.24f, 0.38f, 1f), // 4 maroon
+        new(0.29f, 0.60f, 0.60f, 1f), // 5 teal
+        new(0.36f, 0.24f, 0.64f, 1f), // 6 purple
+    };
+
+    private static Image BuildSwatch(Transform parent, Vector2 position, float size)
+    {
+        var go = SketchUiKit.Make("ColorSwatch", parent);
+        SketchUiKit.Box(go, position, new Vector2(size, size));
+        return SketchUiKit.FillColor(go, Color.white);
+    }
+
+    /// <summary>
+    /// The pick is saved at once and sent with the next cosmetics update, so it also works
+    /// from inside a lobby: the others see the change within a moment.
+    /// </summary>
+    private void CycleColor(int d)
+    {
+        if (ModConfig.PlayerColor == null) return;
+        var count = Protocol.CosmeticColorCount + 1;
+        ModConfig.PlayerColor.Value = ((ChosenColor + d) % count + count) % count;
+        MelonLoader.MelonPreferences.Save();
+        if (_colorLabel != null) _colorLabel.text = ColorName(ChosenColor);
+        if (_colorSwatch != null) _colorSwatch.color = SwatchColor(ChosenColor);
+        _lobby?.PublishColor(ChosenColor);
+        if (_current == Screen.Lobby) RefreshLobby();
     }
 
     private void BuildHomeCard(GameObject body, float y, string icon, string title, string subtitle,
@@ -599,6 +656,12 @@ internal sealed class SketchMultiplayerPanel : IMultiplayerPanel
 
         SketchUiKit.LabelBox(body.transform, "PlayersHdr", new Vector2(-240f, 102f), new Vector2(200f, 24f),
             "PLAYERS", 15f, SketchUiKit.TextDim, TextAlignmentOptions.Left);
+        var colorCell = SketchUiKit.Make("ColorCell", body.transform);
+        SketchUiKit.Box(colorCell, new Vector2(10f, 102f), new Vector2(260f, 34f));
+        _colorLabel = SketchUiKit.Stepper(colorCell.transform, ColorName(ChosenColor),
+            (UnityAction)(() => CycleColor(-1)), (UnityAction)(() => CycleColor(+1)));
+        _colorSwatch = BuildSwatch(colorCell.transform, new Vector2(-62f, 0f), 22f);
+        _colorSwatch.color = SwatchColor(ChosenColor);
         _connCountLabel = SketchUiKit.LabelBox(body.transform, "Count", new Vector2(280f, 102f), new Vector2(120f, 24f),
             "", 15f, SketchUiKit.TextDim, TextAlignmentOptions.Right);
 
@@ -608,7 +671,8 @@ internal sealed class SketchMultiplayerPanel : IMultiplayerPanel
             SketchUiKit.Box(row, new Vector2(0f, 68f - i * 32f), new Vector2(696f, 30f));
             SketchUiKit.Sliced(row, GameUiAssetLibrary.RowBg, SketchUiKit.RowTint);
             _memberRows.Add(row);
-            _memberNames.Add(SketchUiKit.LabelBox(row.transform, "Name", new Vector2(-90f, 0f), new Vector2(484f, 28f),
+            _memberSwatches.Add(BuildSwatch(row.transform, new Vector2(-318f, 0f), 18f));
+            _memberNames.Add(SketchUiKit.LabelBox(row.transform, "Name", new Vector2(-64f, 0f), new Vector2(432f, 28f),
                 "", 17f, SketchUiKit.TextCream, TextAlignmentOptions.Left));
             _memberRoles.Add(SketchUiKit.LabelBox(row.transform, "Role", new Vector2(248f, 0f), new Vector2(166f, 28f),
                 "", 13f, SketchUiKit.Accent, TextAlignmentOptions.Right));
@@ -665,6 +729,7 @@ internal sealed class SketchMultiplayerPanel : IMultiplayerPanel
             _memberRows[i].SetActive(member != null);
             if (member == null) continue;
             _memberNames[i].text = string.IsNullOrEmpty(member.Name) ? "Player" : member.Name;
+            _memberSwatches[i].color = SwatchColor(member.IsSelf ? ChosenColor : member.ColorChoice);
             var role = member.IsSelf && member.IsHost ? "YOU / HOST"
                 : member.IsHost ? "HOST" : member.IsSelf ? "YOU" : "";
             // Each player tells the lobby whether their game can open its destination; the
@@ -912,7 +977,7 @@ internal sealed class SketchMultiplayerPanel : IMultiplayerPanel
         _titleLabel = null; _pageLabel = null; _browseSummary = null;
         _refreshBtn = null; _previousPage = null; _nextPage = null; _copyBtn = null;
         _browseButtons.Clear(); _navigationButtons.Clear(); _settingButtons.Clear();
-        _memberRows.Clear(); _memberNames.Clear(); _memberRoles.Clear();
+        _memberRows.Clear(); _memberNames.Clear(); _memberRoles.Clear(); _memberSwatches.Clear();
         _copyFeedbackSeconds = 0f;
         _connStart = null; _connStartHint = null;
     }

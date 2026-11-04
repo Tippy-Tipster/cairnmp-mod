@@ -308,7 +308,11 @@ internal sealed class PlayersAdapter : IPlayersApi
     }
 
     public bool TryCaptureCosmetics(out byte flags)
-        => CosmeticInterop.TryGetLocalCosmetics(out flags);
+    {
+        if (!CosmeticInterop.TryGetLocalCosmetics(out flags)) return false;
+        flags = Protocol.WithColorChoice(flags, ModConfig.PlayerColor?.Value ?? 0);
+        return true;
+    }
 
     public void SetRemoteHandPose(int playerId, byte[] packed)
     {
@@ -330,6 +334,9 @@ internal sealed class PlayersAdapter : IPlayersApi
         player.CosmeticFlags = flags;
         player.HasCosmeticState = true;
     }
+
+    public string PreviewClimberColor(string argument)
+        => RemotePlayerManager.PreviewGhost(argument, ModConfig.PlayerColor?.Value ?? 0);
 
     public void ResetHandPoseCaches() => FingerInterop.ResetCaches();
 

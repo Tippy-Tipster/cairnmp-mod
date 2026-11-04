@@ -22,6 +22,9 @@ namespace CairnMultiplayerMod.Internal.Networking
         /// <summary>This player's game cannot open the lobby's destination: the DLC is
         /// missing or the world still locked.</summary>
         public bool WorldUnavailable { get; init; }
+
+        /// <summary>The climber colour this player picked: 0 for automatic, otherwise 1..CosmeticColorCount.</summary>
+        public int ColorChoice { get; init; }
     }
 
     /// <summary>
@@ -51,6 +54,7 @@ namespace CairnMultiplayerMod.Internal.Networking
         private const string KeyWorld = "world";
         private const string KeyStartWorld = "start_world";
         private const string KeyMemberWorldUnavailable = "world_unavailable";
+        private const string KeyMemberColor = "color";
         private const string KeyStartDifficulty = "start_difficulty";
         private const string KeyStartMode = "start_mode";
         private const string KeyStartConstraints = "start_constraints";
@@ -761,6 +765,7 @@ namespace CairnMultiplayerMod.Internal.Networking
                     IsHost = memberId.m_SteamID == HostSteamId,
                     IsSelf = memberId.m_SteamID == selfId,
                     WorldUnavailable = ReadMemberWorldUnavailable(memberId),
+                    ColorChoice = ReadMemberColor(memberId),
                 });
             }
         }

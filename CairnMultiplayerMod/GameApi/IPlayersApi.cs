@@ -27,6 +27,11 @@ internal interface IPlayersApi
     void SetRemoteHandPose(int playerId, byte[] packed);
     void SetRemoteAppearance(int playerId, int packed);
     void SetRemoteCosmetics(int playerId, byte flags);
+    /// <summary>
+    /// Debug aid for the colour pick: stands a copy of the climber next to the local player
+    /// and returns a line saying what it did. "off" removes it.
+    /// </summary>
+    string PreviewClimberColor(string argument);
     void ResetHandPoseCaches();
     void ResetAppearanceCaches();
 

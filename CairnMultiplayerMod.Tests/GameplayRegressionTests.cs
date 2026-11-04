@@ -1493,6 +1493,7 @@ public sealed class GameplayRegressionTests
         public void SetRemoteHandPose(int id, byte[] packed) { }
         public void SetRemoteAppearance(int id, int packed) { }
         public void SetRemoteCosmetics(int id, byte flags) { }
+        public string PreviewClimberColor(string argument) => "";
         public void ResetHandPoseCaches() { }
         internal bool Falling;
         internal readonly HashSet<int> Roped = new();
