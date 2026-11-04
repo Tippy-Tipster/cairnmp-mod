@@ -28,14 +28,20 @@ internal interface IPlayersApi
     void SetRemoteAppearance(int playerId, int packed);
     void SetRemoteCosmetics(int playerId, byte flags);
     /// <summary>
-    /// Debug aid for the colour pick: stands a copy of the climber next to the local player
+    /// Debug aid for the outfit sync: stands a copy of the climber next to the local player
     /// and returns a line saying what it did. "off" removes it.
     /// </summary>
-    string PreviewClimberColor(string argument);
+    string PreviewClimber(string argument);
 
     /// <summary>Debug aid for the outfit experiment: lists the game's outfits or puts one on
     /// the local climber, returning a line saying what happened.</summary>
     string TryOutfit(string argument);
+
+    /// <summary>
+    /// Dresses the local climber in the outfit the player picked in the menu. Called every
+    /// frame; it acts once per climber the game creates unless forced.
+    /// </summary>
+    void ApplyPreferredOutfit();
     void ResetHandPoseCaches();
     void ResetAppearanceCaches();
 

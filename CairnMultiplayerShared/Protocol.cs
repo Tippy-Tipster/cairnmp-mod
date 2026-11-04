@@ -38,28 +38,11 @@ public static class Protocol
 
     public const byte CosmeticFlagGlowingGloves = 1 << 0;
 
-    /// <summary>Climber colours a player can pick; choice 0 is "automatic".</summary>
-    public const int CosmeticColorCount = 6;
-
-    private const int CosmeticColorShift = 1;
-    private const byte CosmeticColorMask = 0b111 << CosmeticColorShift;
-
-    /// <summary>
-    /// The colour choice rides in bits 1-3 of the cosmetic flags: 0 lets the game pick one per
-    /// player, 1..<see cref="CosmeticColorCount"/> picks that colour. Peers that predate the
-    /// choice only read the gloves bit, so they ignore it.
-    /// </summary>
-    public static byte WithColorChoice(byte flags, int choice)
-    {
-        if (choice < 0 || choice > CosmeticColorCount) choice = 0;
-        return (byte)((flags & ~CosmeticColorMask) | (choice << CosmeticColorShift));
-    }
-
-    private const int CosmeticOutfitShift = 4;
+    private const int CosmeticOutfitShift = 1;
     private const byte CosmeticOutfitMask = 0b111 << CosmeticOutfitShift;
 
     /// <summary>
-    /// The game's body-and-outfit skin rides in bits 4-6 of the cosmetic flags, stored as the
+    /// The game's body-and-outfit skin rides in bits 1-3 of the cosmetic flags, stored as the
     /// skin's number plus one so that 0 can mean "not sent": a peer that predates the field
     /// leaves it empty, and its climber's outfit must not be reset.
     /// </summary>
@@ -72,13 +55,6 @@ public static class Protocol
     /// <summary>The outfit skin number in <paramref name="flags"/>, or -1 when none was sent.</summary>
     public static int OutfitSkinOf(byte flags)
         => ((flags & CosmeticOutfitMask) >> CosmeticOutfitShift) - 1;
-
-    /// <summary>The colour choice in <paramref name="flags"/>; anything out of range reads as automatic.</summary>
-    public static int ColorChoiceOf(byte flags)
-    {
-        var choice = (flags & CosmeticColorMask) >> CosmeticColorShift;
-        return choice <= CosmeticColorCount ? choice : 0;
-    }
 
     public const float PingLifetimeSeconds = 15f;
 

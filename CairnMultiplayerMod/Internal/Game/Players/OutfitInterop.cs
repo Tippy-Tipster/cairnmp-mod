@@ -51,6 +51,67 @@ internal static class OutfitInterop
         }
     }
 
+    /// <summary>The outfits a player can pick in the menu. 0 leaves the outfit to the game.</summary>
+    internal static readonly (string Label, int Skin)[] Choices =
+    {
+        ("Auto", 0),
+        ("Default", (int)PawnBodyAndOutfitSkinType.Default),
+        ("Ice climbing", (int)PawnBodyAndOutfitSkinType.IceClimbing),
+        ("Pajamas", (int)PawnBodyAndOutfitSkinType.Pajamas),
+        ("No hood", (int)PawnBodyAndOutfitSkinType.NoHood),
+    };
+
+    internal static readonly int DefaultSkin = (int)PawnBodyAndOutfitSkinType.Default;
+
+    private static int _preferredAppliedTo;
+    private static float _nextPreferredCheck;
+    private static float _preferredWindowEndsAt;
+    private const float PreferredWindowSeconds = 12f;
+
+    /// <summary>
+    /// Puts the player's chosen outfit on the local climber. The game can dress a new climber
+    /// itself shortly after creating it, so for a few seconds after each new climber the pick
+    /// is put back if the game changes it. After that the game stays free to change the outfit,
+    /// for ice or at camp. A pick made in the menu is applied at once.
+    /// </summary>
+    internal static void ApplyPreferred(int skin, bool force)
+    {
+        if (skin <= 0) return;
+        if (!force)
+        {
+            if (Time.unscaledTime < _nextPreferredCheck) return;
+            _nextPreferredCheck = Time.unscaledTime + 0.5f;
+        }
+
+        var handler = ResolveLocalHandler();
+        if (handler == null) return;
+
+        try
+        {
+            var type = (PawnBodyAndOutfitSkinType)skin;
+            if (!Enum.IsDefined(typeof(PawnBodyAndOutfitSkinType), type)) return;
+
+            var now = Time.unscaledTime;
+            var climber = handler.gameObject.GetInstanceID();
+            if (force || climber != _preferredAppliedTo)
+            {
+                _preferredAppliedTo = climber;
+                _preferredWindowEndsAt = now + PreferredWindowSeconds;
+                ModLog.Info($"[Outfit] climber {climber}: wearing {handler.CurrentBodyAndOutfitSkinType}, picked {type}");
+            }
+            else if (now > _preferredWindowEndsAt)
+            {
+                return;
+            }
+
+            if (handler.CurrentBodyAndOutfitSkinType == type) return;
+
+            var changed = handler.TryChangeBodyAndOutfitSkin(type);
+            ModLog.Info($"[Outfit] put on {type}: game said {changed}, now {handler.CurrentBodyAndOutfitSkinType}");
+        }
+        catch (Exception exception) { ModLog.SuppressedException("outfit.apply-preferred", exception); }
+    }
+
     private static PawnSkinHandler _localHandler;
 
     /// <summary>The number of the outfit skin the local climber wears, for the cosmetics byte.</summary>

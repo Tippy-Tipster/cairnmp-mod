@@ -51,7 +51,6 @@ internal static class RemotePlayerManager
         public bool LastAppliedGloves;
         public bool HasAppliedCosmeticState;
 
-        public int LastAppliedColorChoice = -1;
         public int LastAppliedOutfitSkin = -1;
 
 
@@ -499,76 +498,33 @@ internal static class RemotePlayerManager
         entry.HasAppliedOutfit = true;
     }
 
-    /// <summary>Cairn's own skin palette index for a ghost: the player's pick, or one spread by id.</summary>
-    internal static byte SkinColorIndex(int playerId, int colorChoice)
-        => colorChoice is >= 1 and <= Protocol.CosmeticColorCount
-            ? (byte)(colorChoice - 1)
-            : (byte)(((playerId % Protocol.CosmeticColorCount) + Protocol.CosmeticColorCount) % Protocol.CosmeticColorCount);
-
-    private static bool TryApplySkinColor(NetplayRemotePlayer ghost, int playerId, int colorChoice)
-    {
-        try
-        {
-            var skin = ghost.skin != null ? ghost.skin : ghost.transform.root.GetComponentInChildren<NetplayPlayerSkin>(true);
-            if (skin == null) return false;
-
-            var colorIndex = SkinColorIndex(playerId, colorChoice);
-            skin.SetColorIndex(colorIndex);
-            ModLog.Debug($"[Ghost] native skin color index {colorIndex} applied to {playerId}");
-            return true;
-        }
-        catch (Exception exception)
-        {
-            ModLog.SuppressedException("remote-player.apply-native-skin", exception);
-            return false;
-        }
-    }
-
     private static GameObject _previewGhost;
     private static NetplayRemotePlayer _previewNrp;
-    private static int _previewColorChoice;
 
     /// <summary>
     /// Debug aid: stands a copy of the climber in front of the local player, built the way a
-    /// remote player's is, so a colour pick can be seen without a second player. It has no
-    /// network feed, so it stays in the prefab's rest pose. With no argument it appears in
-    /// the saved colour and each further call moves on to the next one.
+    /// remote player's is and dressed from the outfit the local climber wears, so the outfit
+    /// sync can be checked without a second player. It has no network feed, so it stays in the
+    /// prefab's rest pose. "outfit" dresses it again after an outfit change.
     /// </summary>
-    internal static string PreviewGhost(string argument, int savedChoice)
+    internal static string PreviewGhost(string argument)
     {
         argument = (argument ?? "").Trim().ToLowerInvariant();
         if (argument == "off")
         {
             ClearPreviewGhost();
-            return "Colour preview removed.";
+            return "Preview removed.";
         }
 
         if (argument == "meshes") return DumpMeshes();
-        if (argument == "outfit") return MirrorOutfitOnPreview();
         if (argument == "api") return DumpSkinApi();
-
-        var count = Protocol.CosmeticColorCount + 1;
-        int choice;
-        if (argument.Length == 0)
-            choice = _previewGhost != null ? (_previewColorChoice + 1) % count : savedChoice;
-        else if (argument == "auto")
-            choice = 0;
-        else if (!int.TryParse(argument, out choice) || choice < 0 || choice > Protocol.CosmeticColorCount)
-            return $"Use /ghost, /ghost 1-{Protocol.CosmeticColorCount}, /ghost auto or /ghost off.";
+        if (argument == "outfit") return MirrorOutfitOnPreview();
 
         if (_previewGhost == null && !TrySpawnPreviewGhost(out var failure)) return failure;
 
-        if (!TryApplySkinColor(_previewNrp, PreviewPlayerId, choice))
-            return "Could not change the preview's colour.";
-
-        _previewColorChoice = choice;
         DressPreview();
-        return choice == 0
-            ? "Preview colour: Auto (the game's own pick for this player)."
-            : $"Preview colour: Colour {choice}.";
+        return "Preview is wearing what other players would see.";
     }
-
-    private const int PreviewPlayerId = 1;
 
     /// <summary>Debug aid: logs what the game's skin classes can do, to find a way to dress the multiplayer climber.</summary>
     private static string DumpSkinApi()
@@ -686,7 +642,7 @@ internal static class RemotePlayerManager
         try
         {
             go = Object.Instantiate(prefab);
-            go.name = "MP_ColorPreview";
+            go.name = "MP_OutfitPreview";
             var nrp = go.GetComponent<NetplayRemotePlayer>() ?? go.GetComponentInChildren<NetplayRemotePlayer>(true);
             if (nrp == null)
             {
@@ -746,11 +702,6 @@ internal static class RemotePlayerManager
             if (rp == null || !rp.HasCosmeticState) continue;
             if (!_ghosts.TryGetValue(kv.Key, out var entry)) continue;
             if (!entry.IsRealModel || entry.NrpComponent == null) continue;
-
-            var colorChoice = Protocol.ColorChoiceOf(rp.CosmeticFlags);
-            if (entry.LastAppliedColorChoice != colorChoice
-                && TryApplySkinColor(entry.NrpComponent, kv.Key, colorChoice))
-                entry.LastAppliedColorChoice = colorChoice;
 
             var outfitSkin = Protocol.OutfitSkinOf(rp.CosmeticFlags);
             if (outfitSkin >= 0 && entry.LastAppliedOutfitSkin != outfitSkin
@@ -901,8 +852,6 @@ internal static class RemotePlayerManager
             var prefab = NetplayAnimationInterop.TryGetNetplayClimberPrefab();
 
             bool isRealModel = false;
-            int initialColorChoice = rp != null && rp.HasCosmeticState ? Protocol.ColorChoiceOf(rp.CosmeticFlags) : 0;
-            bool initialColorApplied = false;
 
             if (prefab != null)
             {
@@ -938,8 +887,19 @@ internal static class RemotePlayerManager
                         catch (Exception exception) { ModLog.SuppressedException("remote-player.apply-spawn-lerp", exception); }
 
                         // Use Cairn's palette so custom shaders receive the expected material setup.
-                        if (TryApplySkinColor(nrpComp, id, initialColorChoice))
-                            initialColorApplied = true;
+                        try
+                        {
+                            var skin = nrpComp.skin != null
+                                ? nrpComp.skin
+                                : go.GetComponentInChildren<NetplayPlayerSkin>(true);
+                            if (skin != null)
+                            {
+                                byte colorIndex = (byte)(((id % 6) + 6) % 6);
+                                skin.SetColorIndex(colorIndex);
+                                ModLog.Debug($"[Ghost] native skin color index {colorIndex} applied to {id}");
+                            }
+                        }
+                        catch (Exception exception) { ModLog.SuppressedException("remote-player.apply-native-skin", exception); }
                     }
 
                     var skinned = go.GetComponentsInChildren<SkinnedMeshRenderer>(true);
@@ -976,7 +936,6 @@ internal static class RemotePlayerManager
                         IsRealModel = true,
                         Collider = capsule,
                         InteractionColliders = interactionColliders,
-                        LastAppliedColorChoice = initialColorApplied ? initialColorChoice : -1,
                     };
                 }
             }

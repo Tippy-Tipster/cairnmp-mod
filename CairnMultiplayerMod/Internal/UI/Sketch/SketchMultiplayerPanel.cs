@@ -67,9 +67,9 @@ internal sealed class SketchMultiplayerPanel : IMultiplayerPanel
     private string _autoLobbyName = "";
     private int _slots = MaxSlots, _visIndex;
     private TextMeshProUGUI _slotsLabel, _visLabel, _worldLabel, _worldNote, _createLabel, _joinLabel, _refreshLabel;
-    private TextMeshProUGUI _subtitleLabel, _bannerBadge, _colorLabel;
-    private Image _colorSwatch;
-    private readonly List<Image> _memberSwatches = new();
+    private TextMeshProUGUI _subtitleLabel, _bannerBadge, _outfitLabel;
+    private readonly List<GameObject> _lookRows = new();
+    private readonly List<TextMeshProUGUI> _rowOutfitLabels = new();
     private Button _createBtn, _joinBtn, _refreshBtn, _previousPage, _nextPage, _copyBtn;
     private Transform _browseList;
     private GameObject _browseEmpty;
@@ -292,60 +292,84 @@ internal sealed class SketchMultiplayerPanel : IMultiplayerPanel
         BuildHomeCard(body, -98f, GameUiAssetLibrary.IconPlayer, "BROWSE CLIMBS",
             "Find a public lobby to join", () => SwitchTo(Screen.Browse));
 
-        var colorCell = SketchUiKit.RowStrip(body.transform, "Climber colour", -190f);
-        _colorLabel = SketchUiKit.Stepper(colorCell, ColorName(ChosenColor),
-            (UnityAction)(() => CycleColor(-1)), (UnityAction)(() => CycleColor(+1)));
-        _colorSwatch = BuildSwatch(colorCell, new Vector2(-62f, 0f), 22f);
-        _colorSwatch.color = SwatchColor(ChosenColor);
-        foreach (var button in colorCell.GetComponentsInChildren<Button>()) _settingButtons.Add(button);
+        var look = SketchUiKit.Make("LookRow", body.transform);
+        SketchUiKit.Box(look, new Vector2(0f, -190f), new Vector2(660f, 52f));
+        SketchUiKit.Sliced(look, GameUiAssetLibrary.RowBg, SketchUiKit.RowTint);
+
+        SketchUiKit.LabelBox(look.transform, "OutfitName", new Vector2(-258f, 0f), new Vector2(100f, 30f),
+            "Outfit", 15f, SketchUiKit.TextDim, TextAlignmentOptions.Left);
+        _outfitLabel = BuildStepper(look.transform, "OutfitCell", new Vector2(40f, 0f), OutfitName(ChosenOutfit),
+            () => CycleOutfit(-1), () => CycleOutfit(+1), 84f, 120f, 17f, out _);
+
+        foreach (var button in look.GetComponentsInChildren<Button>(true)) _settingButtons.Add(button);
 
         BuildStatus(body.transform);
     }
 
-    private static int ChosenColor
-        => Math.Clamp(ModConfig.PlayerColor?.Value ?? 0, 0, Protocol.CosmeticColorCount);
-
-    private static string ColorName(int choice) => choice == 0 ? "Auto" : $"Colour {choice}";
-
-    /// <summary>
-    /// The swatches show the jacket colour each pick gives, the one thing the game's skin
-    /// palette changes. Auto is grey: the game picks per player.
-    /// </summary>
-    private static Color SwatchColor(int choice)
-        => choice is >= 1 and <= Protocol.CosmeticColorCount ? JacketColors[choice - 1] : new Color(0.45f, 0.45f, 0.47f, 1f);
-
-    // The jacket body of each game skin colour, eyeballed from screenshots of the previews.
-    private static readonly Color[] JacketColors =
+    private static int ChosenOutfit
     {
-        new(0.20f, 0.34f, 0.76f, 1f), // 1 blue
-        new(0.22f, 0.22f, 0.25f, 1f), // 2 charcoal
-        new(0.16f, 0.20f, 0.36f, 1f), // 3 dark navy
-        new(0.52f, 0.24f, 0.38f, 1f), // 4 maroon
-        new(0.29f, 0.60f, 0.60f, 1f), // 5 teal
-        new(0.36f, 0.24f, 0.64f, 1f), // 6 purple
-    };
-
-    private static Image BuildSwatch(Transform parent, Vector2 position, float size)
-    {
-        var go = SketchUiKit.Make("ColorSwatch", parent);
-        SketchUiKit.Box(go, position, new Vector2(size, size));
-        return SketchUiKit.FillColor(go, Color.white);
+        get
+        {
+            var saved = ModConfig.PlayerOutfit?.Value ?? 0;
+            foreach (var choice in OutfitInterop.Choices)
+                if (choice.Skin == saved) return saved;
+            return 0;
+        }
     }
 
-    /// <summary>
-    /// The pick is saved at once and sent with the next cosmetics update, so it also works
-    /// from inside a lobby: the others see the change within a moment.
-    /// </summary>
-    private void CycleColor(int d)
+    private static string OutfitName(int skin)
     {
-        if (ModConfig.PlayerColor == null) return;
-        var count = Protocol.CosmeticColorCount + 1;
-        ModConfig.PlayerColor.Value = ((ChosenColor + d) % count + count) % count;
+        foreach (var choice in OutfitInterop.Choices)
+            if (choice.Skin == skin) return choice.Label;
+        return "Auto";
+    }
+
+    private static string LobbyOutfitText(int skin) => $"{OutfitName(skin)} outfit";
+
+    /// <summary>Brings every copy of the outfit control, on the home screen and in the lobby rows, up to date.</summary>
+    private void RefreshLookControls()
+    {
+        var outfit = ChosenOutfit;
+        if (_outfitLabel != null) _outfitLabel.text = OutfitName(outfit);
+        for (int i = 0; i < _rowOutfitLabels.Count; i++) _rowOutfitLabels[i].text = LobbyOutfitText(outfit);
+    }
+
+    private void CycleOutfit(int d)
+    {
+        if (ModConfig.PlayerOutfit == null) return;
+        var choices = OutfitInterop.Choices;
+        var index = 0;
+        for (int i = 0; i < choices.Length; i++)
+            if (choices[i].Skin == ChosenOutfit) index = i;
+
+        var next = choices[((index + d) % choices.Length + choices.Length) % choices.Length].Skin;
+        ModConfig.PlayerOutfit.Value = next;
         MelonLoader.MelonPreferences.Save();
-        if (_colorLabel != null) _colorLabel.text = ColorName(ChosenColor);
-        if (_colorSwatch != null) _colorSwatch.color = SwatchColor(ChosenColor);
-        _lobby?.PublishColor(ChosenColor);
-        if (_current == Screen.Lobby) RefreshLobby();
+        RefreshLookControls();
+        OutfitInterop.ApplyPreferred(next, force: true);
+    }
+
+    /// <summary>A narrower stepper than the kit's, for rows that hold two of them.</summary>
+    private static TextMeshProUGUI BuildStepper(Transform parent, string name, Vector2 position, string value,
+        Action onLeft, Action onRight, float arrowOffset, float valueWidth, float fontSize, out GameObject cell)
+    {
+        cell = SketchUiKit.Make(name, parent);
+        SketchUiKit.Box(cell, position, new Vector2(arrowOffset * 2f + 40f, 34f));
+
+        var leftGo = SketchUiKit.Make("Left", cell.transform);
+        SketchUiKit.Box(leftGo, new Vector2(-arrowOffset, 0f), new Vector2(26f, 34f));
+        SketchUiKit.Simple(leftGo, GameUiAssetLibrary.Arrow, SketchUiKit.TextCream, raycast: true);
+        SketchUiKit.MakeButton(leftGo, (UnityAction)(() => onLeft()));
+
+        var label = SketchUiKit.LabelBox(cell.transform, "Value", Vector2.zero, new Vector2(valueWidth, 34f),
+            value, fontSize, SketchUiKit.TextCream, TextAlignmentOptions.Center);
+
+        var rightGo = SketchUiKit.Make("Right", cell.transform);
+        var rightRect = SketchUiKit.Box(rightGo, new Vector2(arrowOffset, 0f), new Vector2(26f, 34f));
+        SketchUiKit.Simple(rightGo, GameUiAssetLibrary.Arrow, SketchUiKit.TextCream, raycast: true);
+        rightRect.localScale = new Vector3(-1f, 1f, 1f);
+        SketchUiKit.MakeButton(rightGo, (UnityAction)(() => onRight()));
+        return label;
     }
 
     private void BuildHomeCard(GameObject body, float y, string icon, string title, string subtitle,
@@ -656,12 +680,6 @@ internal sealed class SketchMultiplayerPanel : IMultiplayerPanel
 
         SketchUiKit.LabelBox(body.transform, "PlayersHdr", new Vector2(-240f, 102f), new Vector2(200f, 24f),
             "PLAYERS", 15f, SketchUiKit.TextDim, TextAlignmentOptions.Left);
-        var colorCell = SketchUiKit.Make("ColorCell", body.transform);
-        SketchUiKit.Box(colorCell, new Vector2(10f, 102f), new Vector2(260f, 34f));
-        _colorLabel = SketchUiKit.Stepper(colorCell.transform, ColorName(ChosenColor),
-            (UnityAction)(() => CycleColor(-1)), (UnityAction)(() => CycleColor(+1)));
-        _colorSwatch = BuildSwatch(colorCell.transform, new Vector2(-62f, 0f), 22f);
-        _colorSwatch.color = SwatchColor(ChosenColor);
         _connCountLabel = SketchUiKit.LabelBox(body.transform, "Count", new Vector2(280f, 102f), new Vector2(120f, 24f),
             "", 15f, SketchUiKit.TextDim, TextAlignmentOptions.Right);
 
@@ -671,11 +689,18 @@ internal sealed class SketchMultiplayerPanel : IMultiplayerPanel
             SketchUiKit.Box(row, new Vector2(0f, 68f - i * 32f), new Vector2(696f, 30f));
             SketchUiKit.Sliced(row, GameUiAssetLibrary.RowBg, SketchUiKit.RowTint);
             _memberRows.Add(row);
-            _memberSwatches.Add(BuildSwatch(row.transform, new Vector2(-318f, 0f), 18f));
-            _memberNames.Add(SketchUiKit.LabelBox(row.transform, "Name", new Vector2(-64f, 0f), new Vector2(432f, 28f),
+            _memberNames.Add(SketchUiKit.LabelBox(row.transform, "Name", new Vector2(-90f, 0f), new Vector2(484f, 28f),
                 "", 17f, SketchUiKit.TextCream, TextAlignmentOptions.Left));
             _memberRoles.Add(SketchUiKit.LabelBox(row.transform, "Role", new Vector2(248f, 0f), new Vector2(166f, 28f),
                 "", 13f, SketchUiKit.Accent, TextAlignmentOptions.Right));
+
+            // The player's own look is set in their own row, beside their name.
+            var look = SketchUiKit.Make("LookControls", row.transform);
+            SketchUiKit.Box(look, Vector2.zero, new Vector2(696f, 30f));
+            _rowOutfitLabels.Add(BuildStepper(look.transform, "OutfitCell", new Vector2(60f, 0f),
+                LobbyOutfitText(ChosenOutfit), () => CycleOutfit(-1), () => CycleOutfit(+1), 88f, 150f, 14f, out _));
+            _lookRows.Add(look);
+            look.SetActive(false);
         }
 
         _statusLabel = SketchUiKit.LabelBox(body.transform, "Status", new Vector2(0f, -172f), new Vector2(680f, 28f),
@@ -729,7 +754,14 @@ internal sealed class SketchMultiplayerPanel : IMultiplayerPanel
             _memberRows[i].SetActive(member != null);
             if (member == null) continue;
             _memberNames[i].text = string.IsNullOrEmpty(member.Name) ? "Player" : member.Name;
-            _memberSwatches[i].color = SwatchColor(member.IsSelf ? ChosenColor : member.ColorChoice);
+
+            // Only the player's own row carries the outfit control, so their name gets less room.
+            _lookRows[i].SetActive(member.IsSelf);
+            var nameWidth = member.IsSelf ? 250f : 484f;
+            // The text stretches to fill its box, so it is the box that gets resized.
+            var nameBox = _memberNames[i].transform.parent.GetComponent<RectTransform>();
+            nameBox.sizeDelta = new Vector2(nameWidth, 28f);
+            nameBox.anchoredPosition = new Vector2(-332f + nameWidth / 2f, 0f);
             var role = member.IsSelf && member.IsHost ? "YOU / HOST"
                 : member.IsHost ? "HOST" : member.IsSelf ? "YOU" : "";
             // Each player tells the lobby whether their game can open its destination; the
@@ -977,7 +1009,8 @@ internal sealed class SketchMultiplayerPanel : IMultiplayerPanel
         _titleLabel = null; _pageLabel = null; _browseSummary = null;
         _refreshBtn = null; _previousPage = null; _nextPage = null; _copyBtn = null;
         _browseButtons.Clear(); _navigationButtons.Clear(); _settingButtons.Clear();
-        _memberRows.Clear(); _memberNames.Clear(); _memberRoles.Clear(); _memberSwatches.Clear();
+        _memberRows.Clear(); _memberNames.Clear(); _memberRoles.Clear();
+        _lookRows.Clear(); _rowOutfitLabels.Clear(); _outfitLabel = null;
         _copyFeedbackSeconds = 0f;
         _connStart = null; _connStartHint = null;
     }

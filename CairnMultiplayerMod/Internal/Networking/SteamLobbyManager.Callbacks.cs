@@ -321,37 +321,6 @@ namespace CairnMultiplayerMod.Internal.Networking
             }
         }
 
-        /// <summary>Shares this player's climber colour with the lobby, so the member list can
-        /// show it before anyone has loaded in.</summary>
-        public void PublishColor(int choice)
-        {
-            if (!IsInLobby) return;
-            try
-            {
-                SteamMatchmaking.SetLobbyMemberData(CurrentLobbyId, KeyMemberColor, choice.ToString());
-            }
-            catch (Exception exception)
-            {
-                ModLog.SuppressedException("steam-lobby.publish-color", exception);
-            }
-        }
-
-        private int ReadMemberColor(CSteamID memberId)
-        {
-            try
-            {
-                var text = SteamMatchmaking.GetLobbyMemberData(CurrentLobbyId, memberId, KeyMemberColor);
-                return int.TryParse(text, out var choice) && choice >= 0 && choice <= Protocol.CosmeticColorCount
-                    ? choice
-                    : 0;
-            }
-            catch (Exception exception)
-            {
-                ModLog.SuppressedException("steam-lobby.read-color", exception);
-                return 0;
-            }
-        }
-
         private bool ReadMemberWorldUnavailable(CSteamID memberId)
         {
             try
