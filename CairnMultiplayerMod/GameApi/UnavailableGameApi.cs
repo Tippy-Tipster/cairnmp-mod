@@ -147,6 +147,7 @@ internal sealed class UnavailableGameApi : IGameApi
         public void SetRemoteAppearance(int playerId, int packed) { }
         public void SetRemoteCosmetics(int playerId, byte flags) { }
         public string PreviewClimberColor(string argument) => "";
+        public string TryOutfit(string argument) => "";
         public void ResetHandPoseCaches() { }
         public bool IsLocalPlayerFalling => false;
         public bool IsRopedToLocalPlayer(int playerId) => false;

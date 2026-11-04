@@ -32,6 +32,10 @@ internal interface IPlayersApi
     /// and returns a line saying what it did. "off" removes it.
     /// </summary>
     string PreviewClimberColor(string argument);
+
+    /// <summary>Debug aid for the outfit experiment: lists the game's outfits or puts one on
+    /// the local climber, returning a line saying what happened.</summary>
+    string TryOutfit(string argument);
     void ResetHandPoseCaches();
     void ResetAppearanceCaches();
 

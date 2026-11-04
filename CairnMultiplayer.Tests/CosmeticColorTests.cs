@@ -46,4 +46,38 @@ public sealed class CosmeticColorTests
     [Fact]
     public void FlagsFromPeersWithoutAColorChoiceReadAsAutomatic()
         => Assert.Equal(0, Protocol.ColorChoiceOf(Protocol.CosmeticFlagGlowingGloves));
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(4)]
+    [InlineData(6)]
+    public void AnOutfitSkinSurvivesPacking(int skin)
+        => Assert.Equal(skin, Protocol.OutfitSkinOf(Protocol.WithOutfitSkin(0, skin)));
+
+    [Fact]
+    public void PeersWithoutAnOutfitSkinReadAsNotSent()
+    {
+        Assert.Equal(-1, Protocol.OutfitSkinOf(0));
+        Assert.Equal(-1, Protocol.OutfitSkinOf(Protocol.WithColorChoice(Protocol.CosmeticFlagGlowingGloves, 3)));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(7)]
+    public void AnOutOfRangeSkinIsSentAsNotSent(int skin)
+        => Assert.Equal(-1, Protocol.OutfitSkinOf(Protocol.WithOutfitSkin(0xFF, skin)));
+
+    [Fact]
+    public void ColorGlovesAndOutfitSkinDoNotDisturbEachOther()
+    {
+        var flags = Protocol.WithOutfitSkin(Protocol.WithColorChoice(Protocol.CosmeticFlagGlowingGloves, 5), 3);
+
+        Assert.True((flags & Protocol.CosmeticFlagGlowingGloves) != 0);
+        Assert.Equal(5, Protocol.ColorChoiceOf(flags));
+        Assert.Equal(3, Protocol.OutfitSkinOf(flags));
+
+        flags = Protocol.WithColorChoice(flags, 2);
+        Assert.Equal(3, Protocol.OutfitSkinOf(flags));
+    }
 }

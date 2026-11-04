@@ -311,6 +311,8 @@ internal sealed class PlayersAdapter : IPlayersApi
     {
         if (!CosmeticInterop.TryGetLocalCosmetics(out flags)) return false;
         flags = Protocol.WithColorChoice(flags, ModConfig.PlayerColor?.Value ?? 0);
+        if (OutfitInterop.TryGetLocalSkinValue(out var outfitSkin))
+            flags = Protocol.WithOutfitSkin(flags, outfitSkin);
         return true;
     }
 
@@ -337,6 +339,8 @@ internal sealed class PlayersAdapter : IPlayersApi
 
     public string PreviewClimberColor(string argument)
         => RemotePlayerManager.PreviewGhost(argument, ModConfig.PlayerColor?.Value ?? 0);
+
+    public string TryOutfit(string argument) => OutfitInterop.Run(argument);
 
     public void ResetHandPoseCaches() => FingerInterop.ResetCaches();
 

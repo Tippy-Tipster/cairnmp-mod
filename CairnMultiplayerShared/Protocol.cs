@@ -55,6 +55,24 @@ public static class Protocol
         return (byte)((flags & ~CosmeticColorMask) | (choice << CosmeticColorShift));
     }
 
+    private const int CosmeticOutfitShift = 4;
+    private const byte CosmeticOutfitMask = 0b111 << CosmeticOutfitShift;
+
+    /// <summary>
+    /// The game's body-and-outfit skin rides in bits 4-6 of the cosmetic flags, stored as the
+    /// skin's number plus one so that 0 can mean "not sent": a peer that predates the field
+    /// leaves it empty, and its climber's outfit must not be reset.
+    /// </summary>
+    public static byte WithOutfitSkin(byte flags, int skinValue)
+    {
+        var field = skinValue is >= 0 and <= 6 ? skinValue + 1 : 0;
+        return (byte)((flags & ~CosmeticOutfitMask) | (field << CosmeticOutfitShift));
+    }
+
+    /// <summary>The outfit skin number in <paramref name="flags"/>, or -1 when none was sent.</summary>
+    public static int OutfitSkinOf(byte flags)
+        => ((flags & CosmeticOutfitMask) >> CosmeticOutfitShift) - 1;
+
     /// <summary>The colour choice in <paramref name="flags"/>; anything out of range reads as automatic.</summary>
     public static int ColorChoiceOf(byte flags)
     {

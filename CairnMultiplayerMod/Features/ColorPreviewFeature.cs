@@ -12,8 +12,11 @@ internal sealed class ColorPreviewFeature : MultiplayerFeature
 
     protected internal override void OnRegister(FeatureBuilder feature)
     {
-        feature.Game.Chat.AddCommand("ghost", "/ghost [1-6|auto|off]",
+        feature.Game.Chat.AddCommand("ghost", "/ghost [1-6|auto|outfit|off|meshes|api]",
             "Preview a climber colour on a copy of yourself", Run);
+
+        feature.Game.Chat.AddCommand("outfit", "/outfit [list|<name>]",
+            "Try one of the game's outfits on yourself", argument => Game.Chat.AddSystemLine(Game.Players.TryOutfit(argument)));
 
         feature.OnSceneReset(Remove);
         feature.OnSessionEnded(Remove);

@@ -52,6 +52,7 @@ internal static class RemotePlayerManager
         public bool HasAppliedCosmeticState;
 
         public int LastAppliedColorChoice = -1;
+        public int LastAppliedOutfitSkin = -1;
 
 
         public byte[] LastAppliedHandPosePacked;
@@ -542,6 +543,10 @@ internal static class RemotePlayerManager
             return "Colour preview removed.";
         }
 
+        if (argument == "meshes") return DumpMeshes();
+        if (argument == "outfit") return MirrorOutfitOnPreview();
+        if (argument == "api") return DumpSkinApi();
+
         var count = Protocol.CosmeticColorCount + 1;
         int choice;
         if (argument.Length == 0)
@@ -557,12 +562,108 @@ internal static class RemotePlayerManager
             return "Could not change the preview's colour.";
 
         _previewColorChoice = choice;
+        DressPreview();
         return choice == 0
             ? "Preview colour: Auto (the game's own pick for this player)."
             : $"Preview colour: Colour {choice}.";
     }
 
     private const int PreviewPlayerId = 1;
+
+    /// <summary>Debug aid: logs what the game's skin classes can do, to find a way to dress the multiplayer climber.</summary>
+    private static string DumpSkinApi()
+    {
+        foreach (var type in new[]
+                 {
+                     typeof(NetplayPlayerSkin),
+                     typeof(NetplayRemotePlayer),
+                     typeof(Il2CppTheGameBakers.Cairn.PawnSkinHandler),
+                     typeof(Il2CppTheGameBakers.Cairn.PawnSkinData),
+                     typeof(Il2CppTheGameBakers.Cairn.PawnSkinData).GetProperty("outfit")?.PropertyType,
+                     typeof(Il2CppTheGameBakers.Cairn.PawnSkinHandler).GetProperty("skinDatabase")?.PropertyType,
+                 })
+        {
+            if (type == null) continue;
+            try
+            {
+                const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public
+                    | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly;
+                ModLog.Info($"[SkinApi] {type.FullName}");
+                foreach (var field in type.GetProperties(flags))
+                    ModLog.Info($"[SkinApi]   prop {field.PropertyType.Name} {field.Name}");
+                foreach (var method in type.GetMethods(flags))
+                {
+                    if (method.IsSpecialName) continue;
+                    var args = string.Join(", ", Array.ConvertAll(method.GetParameters(), p => $"{p.ParameterType.Name} {p.Name}"));
+                    ModLog.Info($"[SkinApi]   {method.ReturnType.Name} {method.Name}({args})");
+                }
+            }
+            catch (Exception exception) { ModLog.SuppressedException("remote-player.dump-skin-api", exception); }
+        }
+        return "Skin API written to the log.";
+    }
+
+    /// <summary>
+    /// Dresses the preview the way a remote player's copy of you would be dressed: from the
+    /// outfit meshes your own climber shows right now, which is all the sync carries.
+    /// </summary>
+    private static string MirrorOutfitOnPreview()
+    {
+        if (_previewGhost == null) return "Make a preview first with /ghost.";
+
+        return DressPreview() ? "Preview now wears what other players would see." : "Could not dress the preview.";
+    }
+
+    /// <summary>The two things the sync carries about an outfit: the meshes showing, and the skin.</summary>
+    private static bool DressPreview()
+    {
+        var bits = CosmeticInterop.GetLocalOutfitBits();
+        var applied = CosmeticInterop.ApplyGhostOutfitBits(_previewNrp, bits);
+        var skinApplied = OutfitInterop.TryGetLocalSkinValue(out var skin) && OutfitInterop.ApplyToGhost(_previewNrp, skin);
+        ModLog.Info($"[Outfit] preview dressed: meshes {Convert.ToString(bits, 2).PadLeft(9, '0')} applied={applied}; skin {skin} applied={skinApplied}");
+        return applied || skinApplied;
+    }
+
+    /// <summary>
+    /// Debug aid: lists every mesh on the local climber and on the game's multiplayer climber
+    /// model, with whether it is showing, to see what an outfit or character choice could switch.
+    /// </summary>
+    private static string DumpMeshes()
+    {
+        var me = LocalPlayerInterop.TryGetMCGameObject();
+        var prefab = NetplayAnimationInterop.TryGetNetplayClimberPrefab();
+        var mine = LogMeshes("local climber", me);
+        var model = LogMeshes("multiplayer climber model", prefab);
+        return $"Mesh lists written to the log: {mine} on you, {model} on the climber model.";
+    }
+
+    private static int LogMeshes(string label, GameObject root)
+    {
+        if (root == null)
+        {
+            ModLog.Info($"[Meshes] {label}: not available");
+            return 0;
+        }
+
+        try
+        {
+            var renderers = root.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            ModLog.Info($"[Meshes] {label} '{root.name}': {renderers.Count} skinned mesh(es)");
+            for (int i = 0; i < renderers.Count; i++)
+            {
+                var r = renderers[i];
+                if (r == null) continue;
+                var showing = r.gameObject.activeInHierarchy && r.enabled;
+                ModLog.Info($"[Meshes]   {(showing ? "ON " : "off")} {r.name}  (parent {r.transform.parent?.name})");
+            }
+            return renderers.Count;
+        }
+        catch (Exception exception)
+        {
+            ModLog.SuppressedException("remote-player.dump-meshes", exception);
+            return 0;
+        }
+    }
 
     private static bool TrySpawnPreviewGhost(out string failure)
     {
@@ -599,7 +700,11 @@ internal static class RemotePlayerManager
 
             var skinned = go.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             for (int i = 0; i < skinned.Count; i++)
-                if (skinned[i] != null) skinned[i].enabled = true;
+            {
+                if (skinned[i] == null) continue;
+                skinned[i].enabled = true;
+                skinned[i].updateWhenOffscreen = true;
+            }
 
             var cameras = go.GetComponentsInChildren<Camera>(true);
             for (int i = 0; i < cameras.Count; i++) Object.Destroy(cameras[i]);
@@ -646,6 +751,11 @@ internal static class RemotePlayerManager
             if (entry.LastAppliedColorChoice != colorChoice
                 && TryApplySkinColor(entry.NrpComponent, kv.Key, colorChoice))
                 entry.LastAppliedColorChoice = colorChoice;
+
+            var outfitSkin = Protocol.OutfitSkinOf(rp.CosmeticFlags);
+            if (outfitSkin >= 0 && entry.LastAppliedOutfitSkin != outfitSkin
+                && OutfitInterop.ApplyToGhost(entry.NrpComponent, outfitSkin))
+                entry.LastAppliedOutfitSkin = outfitSkin;
 
             bool glovesOn = (rp.CosmeticFlags & Protocol.CosmeticFlagGlowingGloves) != 0;
             if (!entry.HasAppliedCosmeticState || entry.LastAppliedGloves != glovesOn)
@@ -774,7 +884,11 @@ internal static class RemotePlayerManager
     private static void PurgeGhostCosmeticCaches(GhostEntry entry)
     {
         if (entry?.NrpComponent == null) return;
-        try { CosmeticInterop.ResetGhostCosmeticCaches(entry.NrpComponent); }
+        try
+        {
+            OutfitInterop.ForgetGhost(entry.NrpComponent);
+            CosmeticInterop.ResetGhostCosmeticCaches(entry.NrpComponent);
+        }
         catch (Exception exception) { ModLog.SuppressedException("remote-player.purge-cosmetic-cache", exception); }
     }
 
